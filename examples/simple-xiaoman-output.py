@@ -28,27 +28,20 @@ controller = Controller(output_model=CompanyInfos)
 
 async def main():
 	task = """
-任务：从 https://crm.xiaoman.cn/new_discovery/mining-v2 查找以下公司最近1万条记录的提单详情。
+按照以下工作流去提取每个公司的提单详情信息：
+
+1. 找到 https://crm.xiaoman.cn/new_discovery/mining-v2 中的 营销产品或者公司名称是什么 的输入框输入公司名称
+2. 找到第一个结果点击，会弹出右侧详情页
+3. 在右侧详情页中下拉找到提单详情信息（一般会有很多页），如果没找到，就返回步骤1，开始寻找下一家公司
+4. 找到 提单详情信息 后将结果记录为字符串，然后返回步骤1，开始寻找下一家公司
 
 公司列表：
 - MITTAL REFRIGERATIONS
-- ABID TRADING
-- RUKNUSSIHALAH EST
-
-提取信息：
-- 到港时间
-- 供应商名称
-- HS编码
-- 产品描述
-- 金额(美元)
-
-操作步骤：
-1. 打开链接。
-2. 在公司名称搜索框中输入公司名称。
-3. 点击搜索结果中的第一个选项进入详情页。
-4. 在详情页中找到“提单详情”部分。
-5. 提取指定的信息。
 """
+
+# - ABID TRADING
+# - RUKNUSSIHALAH EST
+
 	model = ChatGoogle(model='gemini-2.0-flash', api_key=google_api_key)
 	agent = Agent(
 		task=task, llm=model,
