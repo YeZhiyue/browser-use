@@ -1,124 +1,208 @@
+import asyncio
+import os
 import pandas as pd
-import mariadb
+from datetime import datetime
+from typing import List, Dict, Optional
+from pydantic import BaseModel
+from dotenv import load_dotenv
+import mysql.connector
+from mysql.connector import Error
+from browser_use import Agent, Controller
+from browser_use.llm import ChatGoogle
+import threading
 import logging
 
-# 配置日志
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# 数据库配置
-db_config = {
-	'host': '你的MariaDB主机地址',
-	'user': '你的MariaDB用户名',
-	'password': '你的MariaDB密码',
-	'database': 'company_data'
-}
+load_dotenv()
 
-# Excel 文件路径
-excel_file = '你的Excel文件.xlsx'  # 替换为你的 Excel 文件路径
-target_sheet = '国家筛选'  # 指定要处理的工作表名称
+# Database configuration
+DB_HOST = "localhost"  # Replace with your DB host if not localhost
+DB_NAME = "company_data"  # Replace with your DB name
+DB_USER = "root"  # Replace with your DB user
+DB_PASSWORD = ""  # Replace with your DB password
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-def import_excel_to_db(excel_file, target_sheet, db_config):
-	"""
-    将 Excel 文件中的指定工作表导入到 MariaDB 数据库中。
+# Check if the Google API key is set
+if not GOOGLE_API_KEY:
+	logging.error("GOOGLE_API_KEY is not set in the environment variables. Please set it.")
+	exit(1)  # Exit if the API key is not set
 
-    Args:
-        excel_file (str): Excel 文件路径。
-        target_sheet (str): 要导入的工作表名称。
-        db_config (dict): 数据库配置信息。
-    """
+# Define the output format as a Pydantic model
+class OrderDetail(BaseModel):
+	arrival_time: Optional[str] = None  # 使用Optional，允许为空
+	hs_code: Optional[str] = None
+	product_description: Optional[str] = None
+	amount_usd: Optional[float] = None
+
+class CompanyInfo(BaseModel):
+	company_name: str
+	info_url: str
+	order_history: List[OrderDetail]
+
+class CompanyInfos(BaseModel):
+	posts: List[CompanyInfo]
+
+controller = Controller(output_model=CompanyInfos)
+
+def fetch_company_data():
+	"""Fetches company data with empty history_order_info from the database."""
+	connection = None  # Initialize connection to None
 	try:
-		# 连接到数据库
-		logging.info("正在尝试连接到数据库...")
-		mydb = mariadb.connect(**db_config)
-		mycursor = mydb.cursor()
-		logging.info("成功连接到数据库.")
-
-		# 读取 Excel 文件
-		logging.info(f"正在读取 Excel 文件，工作表：{target_sheet}...")
-		excel_data = pd.read_excel(excel_file, sheet_name=target_sheet)
-		logging.info(f"成功读取 Excel 文件，工作表：{target_sheet}，共 {len(excel_data)} 行数据.")
-
-		# 遍历 DataFrame 的每一行
-		logging.info(f"开始处理工作表 '{target_sheet}' 中的数据...")
-		for index, row in excel_data.iterrows():
-			logging.debug(f"正在处理第 {index + 1} 行数据...")
-
-			# 从行中提取数据
-			company_name = row['公司名称']
-			company_country = row['公司所属国家/地区']
-			company_website = row['官网']
-			is_cookware_specialist = row['是否专业锅具']
-			exhibition_product_category = row['参展产品类别']
-			exhibition_frequency = row['逛展频次']
-			company_address = row['地址']
-			contact_person = row['联络人']
-			contact_email = row['联络邮箱']
-			contact_phone1 = row['联络电话']
-			contact_phone2 = row['联络电话.1']  # 假设第二个电话列名为 "联络电话.1"
-			future_exhibitions = row['2025上半年作为采购商身份参加厨具相关展会的公司（全球厨具相关展会）']
-
-			# 处理潜在的 NaN 值（缺失数据）
-			is_cookware_specialist = bool(is_cookware_specialist) if pd.notna(is_cookware_specialist) else False
-
-			# 准备 SQL 查询
-			sql = """
-            INSERT INTO company_info (company_name, company_country, company_website, is_cookware_specialist,
-                                        exhibition_product_category, exhibition_frequency, company_address,
-                                        contact_person, contact_email, contact_phone1, contact_phone2,
-                                        future_exhibitions)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-
-			# 准备要插入的值
-			val = (
-				company_name,
-				company_country,
-				company_website,
-				is_cookware_specialist,
-				exhibition_product_category,
-				exhibition_frequency,
-				company_address,
-				contact_person,
-				contact_email,
-				contact_phone1,
-				contact_phone2,
-				future_exhibitions
-			)
-
-			# 执行查询
-			try:
-				mycursor.execute(sql, val)
-				logging.debug(f"成功插入第 {index + 1} 行数据到数据库.")
-			except Exception as e:
-				logging.error(f"插入第 {index + 1} 行数据时发生错误: {e}")
-
-		# 提交更改
-		logging.info("正在提交更改到数据库...")
-		mydb.commit()
-		logging.info(f"工作表 '{target_sheet}' 处理完成. 插入了 {mycursor.rowcount} 条记录.")
-
-	except mariadb.Error as err:
-		logging.error(f"数据库连接错误: {err}")
-
-	except FileNotFoundError:
-		logging.error(f"找不到 Excel 文件: {excel_file}")
-
-	except KeyError as err:
-		logging.error(f"在 Excel 文件中找不到列 '{err}'")
-
-	except Exception as err:
-		logging.error(f"发生了一个意外错误: {err}")
-
+		connection = mysql.connector.connect(host=DB_HOST,
+											 database=DB_NAME,
+											 user=DB_USER,
+											 password=DB_PASSWORD)
+		if connection.is_connected():
+			db_Info = connection.get_server_info()
+			logging.info(f"Connected to MySQL Server version {db_Info}")
+			cursor = connection.cursor()
+			cursor.execute("SELECT id, company_name, xiaoman_order_info_url FROM company_info WHERE history_order_info IS NULL OR history_order_info = '' LIMIT 100")  # Limit to 100 for testing
+			records = cursor.fetchall()
+			logging.info(f"Fetched {len(records)} company records from the database.")
+			return records
+	except Error as e:
+		logging.error(f"Error while connecting to MySQL: {e}")
+		return []
 	finally:
-		if mydb and mydb.is_connected():
-			mycursor.close()
-			mydb.close()
-			logging.info("MariaDB 连接已关闭")
+		if connection and connection.is_connected():
+			cursor = connection.cursor()
+			cursor.close()
+			connection.close()
+			logging.info("MySQL connection is closed")
+		elif connection:
+			logging.warning("Connection object exists but is not connected. Attempting to close.")
+			try:
+				connection.close()
+				logging.info("Potentially broken MySQL connection closed.")
+			except Exception as e:
+				logging.error(f"Failed to close potentially broken MySQL connection: {e}")
 
 
-if __name__ == "__main__":
-	"""
-    主程序入口。
+def update_company_data(company_id, history_order_info):
+	"""Updates the history_order_info in the database."""
+	connection = None  # Initialize connection to None
+	try:
+		connection = mysql.connector.connect(host=DB_HOST,
+											 database=DB_NAME,
+											 user=DB_USER,
+											 password=DB_PASSWORD)
+		if connection.is_connected():
+			cursor = connection.cursor()
+			sql = "UPDATE company_info SET history_order_info = %s WHERE id = %s"
+			val = (history_order_info, company_id)
+			cursor.execute(sql, val)
+			connection.commit()
+			logging.info(f"Updated company_id {company_id} with history_order_info")
+	except Error as e:
+		logging.error(f"Error while updating MySQL: {e}")
+	finally:
+		if connection and connection.is_connected():
+			cursor = connection.cursor()
+			cursor.close()
+			connection.close()
+			logging.info("MySQL connection is closed")
+		elif connection:
+			logging.warning("Connection object exists but is not connected. Attempting to close.")
+			try:
+				connection.close()
+				logging.info("Potentially broken MySQL connection closed.")
+			except Exception as e:
+				logging.error(f"Failed to close potentially broken MySQL connection: {e}")
+
+
+async def process_company(company_id, company_name, xiaoman_order_info_url):
+	"""Processes a single company to extract order details."""
+	logging.info(f"Processing company_id: {company_id}, company_name: {company_name}")
+	task = f"""
+    提取公司 {company_name} (URL: {xiaoman_order_info_url}) 的提单详情信息，但只提取每个公司结果页面的第一个公司信息。请将所有输出翻译成中文。
+
+    按照以下工作流提取信息：
+
+    1.  打开 URL: {xiaoman_order_info_url}。
+    2.  选择列表中第一个公司点击，右侧会弹出公司详情，在详情中继续执行下面操作
+    3.  **提取数据:**
+        *   在右侧面板中，向下滚动，直到找到标题为 "贸易数据" 的选项卡，点击该选项卡。
+        *   继续向下滚动，找到标题为 "提单详情(只显示最近1万条记录)" 的表格。
+        *   在表格的下方，找到 "10条/页" 的下拉菜单，选择 "100条/页"。
+        *   从该表格中，提取**第一条**记录的以下信息：
+            *   **到港时间:** 提取到港日期。
+            *   **HS编码:** 提取 HS 编码。
+            *   **产品描述:** 提取产品描述。
+            *   **金额(美元):** 提取美元金额。
+    4.  **处理分页:**  忽略分页。
+    5.  **保存数据:** 将提取的信息保存为结构化的数据格式。
+
+    [
+        {{
+            "arrival_time": "到港时间",
+            "hs_code": "HS编码",
+            "product_description": "产品描述",
+            "amount_usd": "金额(美元)"
+        }}
+    ]
+
+    只返回上述格式的一个列表，所有内容必须是中文。
     """
-	import_excel_to_db(excel_file, target_sheet, db_config)
-	logging.info("程序执行完毕.")
+
+	model = ChatGoogle(model='gemini-2.0-flash', api_key=GOOGLE_API_KEY)
+	agent = Agent(
+		task=task, llm=model,
+		controller=controller,
+		use_vision=True
+	)
+
+	try:
+		history = await agent.run()
+		result = history.final_result()
+
+		if result:
+			try:
+				parsed: CompanyInfos = CompanyInfos.model_validate_json(result)
+				order_history_json = parsed.model_dump_json()
+				update_company_data(company_id, order_history_json)  # Store JSON string in DB
+				logging.info(f"Successfully processed and saved data for company_id: {company_id}")
+
+			except Exception as e:
+				logging.error(f"Error parsing result for company_id {company_id}: {e}", exc_info=True)
+				update_company_data(company_id, f"Error parsing result: {e}")  # Store error in DB
+		else:
+			logging.warning(f"No result for company_id: {company_id}")
+			update_company_data(company_id, "No result from agent.")  # Store "No result" in DB
+
+	except Exception as e:
+		logging.error(f"Error running agent for company_id {company_id}: {e}", exc_info=True)
+		update_company_data(company_id, f"Error running agent: {e}")  # Store error in DB
+
+
+async def main():
+	logging.info("Starting the main process...")
+	company_data = fetch_company_data()
+	if not company_data:
+		logging.info("No company data found in the database.")
+		return
+
+	# Use a semaphore to limit the number of concurrent tasks
+	semaphore = asyncio.Semaphore(10)  # Limit to 10 concurrent tasks
+
+	async def limited_process_company(company_id, company_name, xiaoman_order_info_url):
+		async with semaphore:
+			logging.info(f"Acquired semaphore for company_id: {company_id}")
+			try:
+				await process_company(company_id, company_name, xiaoman_order_info_url)
+			finally:
+				logging.info(f"Releasing semaphore for company_id: {company_id}")
+				semaphore.release()  # Ensure semaphore is always released
+
+	# Create tasks for each company
+	tasks = [limited_process_company(company_id, company_name, xiaoman_order_info_url) for company_id, company_name, xiaoman_order_info_url in company_data]
+
+	# Run tasks concurrently
+	logging.info(f"Running {len(tasks)} tasks concurrently...")
+	await asyncio.gather(*tasks)
+
+	logging.info("All companies processed.")
+
+if __name__ == '__main__':
+	asyncio.run(main())
