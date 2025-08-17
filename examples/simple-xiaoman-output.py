@@ -35,31 +35,35 @@ controller = Controller(output_model=CompanyInfos)
 
 async def main():
 	task = """
-	按照以下工作流去提取公司列表中的每个公司的提单详情信息：
+	
+按照以下工作流去提取公司列表中的每个公司的提单详情信息，但只提取每个公司结果页面的第一个公司信息。
 
-公司列表：
-- MITTAL REFRIGERATIONS
+公司列表（已进行 URL 编码）：
+- https://crm.xiaoman.cn/new_discovery/mining-v2/list?filter={"keyword":"MITTAL%20REFRIGERATIONS","keywordOperator":"OR","countryCode":[]}
+- https://crm.xiaoman.cn/new_discovery/mining-v2/list?filter={"keyword":"ABID%20TRADING","keywordOperator":"OR","countryCode":[]}
+- https://crm.xiaoman.cn/new_discovery/mining-v2/list?filter={"keyword":"RUKNUSSIHALAH%20EST","keywordOperator":"OR","countryCode":[]}
+- https://crm.xiaoman.cn/new_discovery/mining-v2/list?filter={"keyword":"P%20L%20PRODUCTS","keywordOperator":"OR","countryCode":[]}
+- https://crm.xiaoman.cn/new_discovery/mining-v2/list?filter={"keyword":"CADWARE%20SDN","keywordOperator":"OR","countryCode":[]}
+- https://crm.xiaoman.cn/new_discovery/mining-v2/list?filter={"keyword":"AIK%20SENG%20INDUSTRIES%20SDN","keywordOperator":"OR","countryCode":[]}
+- https://crm.xiaoman.cn/new_discovery/mining-v2/list?filter={"keyword":"C%20A%20SOI%20%26%20CORPORATE","keywordOperator":"OR","countryCode":[]}
 
+对于列表中的每个 URL，执行以下步骤：
 
-对于列表中的每个公司，执行以下步骤：
+1.  打开 URL。
+2.  选择列表中第一个公司点击，右侧会弹出公司详情，在详情中继续执行下面操作
+3.  **提取数据:**
+    *   在右侧面板中，向下滚动，直到找到标题为 "贸易数据(239)" 的选项卡，点击该选项卡。
+    *   继续向下滚动，找到标题为 "提单详情(只显示最近1万条记录)" 的表格。
+    *   在表格的下方，找到 "10条/页" 的下拉菜单，选择 "100条/页"。
+    *   从该表格中，提取**第一条**记录的以下信息：
+        *   **到港时间:** 提取到港日期。
+        *   **供应商名称:** 提取供应商名称。
+        *   **HS编码:** 提取 HS 编码。
+        *   **产品描述:** 提取产品描述。
+        *   **金额(美元):** 提取美元金额。
+4.  **处理分页:**  忽略分页。
+5.  **保存数据:** 将提取的信息保存为结构化的数据格式。
 
-1.  打开 https://crm.xiaoman.cn/new_discovery/mining-v2
-2.  找到页面顶部 "营销产品或者公司名称是什么" 的输入框。
-3.  输入当前公司的名称。
-4.  在搜索结果中，找到名称与当前公司完全匹配的第一个结果，点击它。这会在右侧打开一个公司详细信息面板。
-5.  在右侧面板中，向下滚动，直到找到标题为 "贸易数据(239)" 的选项卡，点击该选项卡。
-6.  继续向下滚动，找到标题为 "提单详情(只显示最近1万条记录)" 的表格。
-7.  在表格的下方，找到 "10条/页" 的下拉菜单，选择 "100条/页"。
-8.  从该表格中，提取每一条记录的以下信息：
-    *   **到港时间:** 提取到港日期。
-    *   **供应商名称:** 提取供应商名称。
-    *   **HS编码:** 提取 HS 编码。
-    *   **产品描述:** 提取产品描述。
-    *   **金额(美元):** 提取美元金额。
-9.  如果表格有分页（显示 "< 1 2 3 ... >" 这样的分页导航），只遍历第一页的内容。
-10. 将提取的信息保存为结构化的数据格式。
-
-输出格式（每个公司一个列表）：
 [
     {
         "arrival_time": "2019-03-16",
@@ -67,19 +71,10 @@ async def main():
         "hs_code": "84818050",
         "product_description": "SOLENOID VALVE F64-3 3/8 (50 PCS) (USE FOR REFRIGERATOR)",
         "amount_usd": "411"
-    },
-    {
-        "arrival_time": "...",
-        "supplier_name": "...",
-        "hs_code": "...",
-        "product_description": "...",
-        "amount_usd": "..."
-    },
-    ...
+    }
 ]
 
-对于每个公司，都生成上述格式的一个列表。
-
+对于每个URL，都生成上述格式的一个列表。
 	"""
 
 	# - ABID TRADING
