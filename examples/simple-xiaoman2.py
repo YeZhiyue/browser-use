@@ -24,14 +24,17 @@ task = '''
 
 打开下面两个页面大致浏览信息：
 工具：https://crm.xiaoman.cn/new_discovery/mining-v2
-表格：https://fcnfuw9nul1t.feishu.cn/sheets/ZHCusIvNhhU4eutC5Moc2HtWnxf?sheet=qqnhTg
+
+公司列表：
+MITTAL REFRIGERATIONS
+ABID TRADING
+RUKNUSSIHALAH EST
 
 工作流：
-1. 打开表格，拉取公司名称信息
+1. 逐个公司名称信息
 2. 打开工具，选择公司名称输入搜索框搜索
 3. 选择搜索到的第一个选项点击进入详情
 4. 下拉详情找到 提单详情 信息，拉取数据
-4. 将数据补充到表格 提单详情信息 列中
 '''
 agent = Agent(task=task, llm=llm)
 
